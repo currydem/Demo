@@ -1,0 +1,87 @@
+---
+- hosts: all
+  become: true
+  vars:
+    NIFI_PRIVATE_KEY: "{{ lookup('env', 'NIFI_PRIVATE_KEY') }}" # Load private key from environment variable
+  tasks:
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Start Docker service
+      service:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Pull NiFi Docker image
+      docker_image:
+        name: apache/nifi:1.24.0 # Use a specific NiFi version.  Update as needed.
+        pull: true
+
+    - name: Run NiFi container
+      docker_container:
+        name: nifi
+        image: apache/nifi:1.24.0
+        ports:
+          - "8080:8080" # Expose the NiFi UI
+        restart_policy: always
+
+    - name: Pull PySpark Docker image
+      docker_image:
+        name: jupyter/pyspark-notebook:latest # Or a specific PySpark image
+        pull: true
+
+    - name: Run PySpark container
+      docker_container:
+        name: pyspark
+        image: jupyter/pyspark-notebook:latest
+        ports:
+          - "8888:8888" # Expose the Jupyter Notebook port
+        volumes: # Mount a volume to persist your PySpark notebooks
+          - /home/ubuntu/pyspark_notebooks:/home/jovyan/work
+        environment:
+          JUPYTER_ENABLE_LAB: "yes" # Enable JupyterLab
+        restart_policy: always
+
+    - name: Pull FastAPI Docker image
+      docker_image:
+        name: tiangolo/uvicorn-gunicorn-fastapi:latest # Or your custom FastAPI image
+        pull: true
+
+    - name: Run FastAPI container
+      docker_container:
+        name: fastapi
+        image: tiangolo/uvicorn-gunicorn-fastapi:latest
+        ports:
+          - "8000:80"
+        environment:
+          #  Set environment variables for your FastAPI application
+          VARIABLE0: "foo"
+          VARIABLE1: "bar"
+        volumes:
+          - /home/ubuntu/app:/app # Mount your application code
+        restart_policy: always
+
+    - name: Add the private key to a file
+      copy:
+        dest: /home/ubuntu/nifi_private.pem
+        content: "{{ NIFI_PRIVATE_KEY }}"
+        mode: '0400'
+
+    - name: Ensure proper permissions on the private key file
+      file:
+        path: /home/ubuntu/nifi_private.pem
+        mode: '0400'
+
+    - name: Connect to the EC2 instance
+      ssh:
+        host: "{{ hostvars['ec2_public_ip'] }}"  # Use the instance's public IP.  Corrected variable.
+        private_key_file: "/home/ubuntu/nifi_private.pem"
+        user: ubuntu # Or the appropriate user for your AMI
+
+    - name: Remove private key file
+      file:
+        path: /home/ubuntu/nifi_private.pem
+        state: absent
